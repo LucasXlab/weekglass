@@ -22,6 +22,7 @@ def plan_for(events, cfg=None):
 def test_plan_roundtrip_and_fields():
     cfg, items, text = plan_for([])
     assert len(items) == 3
+    assert "\r\n" in text
     calendar = Calendar.from_ical(text)
     events = calendar.walk("VEVENT")
     assert len(events) == 3

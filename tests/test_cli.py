@@ -316,3 +316,11 @@ def test_max_per_day_and_config_flags(tmp_path, capsys):
     payload = json.loads(out)
     assert len(payload["suggestions"]) == 9
     assert payload["settings"]["max_per_day"] == 2
+
+
+def test_include_weekend_summary_says_days(tmp_path, capsys):
+    work = work_calendar(tmp_path)
+    code, out, err = run(capsys, "audit", str(work), "--week", "2026-10-26", "--include-weekend")
+    assert code == 0, err
+    assert "7 天" in out
+    assert "7 个工作日" not in out

@@ -72,7 +72,12 @@ def _event_intervals(events: list[Event], day: date, cfg: Config, *, include_buf
     end_of_day = start_of_day + timedelta(days=1)
     result: list[tuple[datetime, datetime]] = []
     for event in events:
-        if not event.busy and not (event.all_day and cfg.all_day_busy):
+        if not event.busy and not (
+            event.all_day
+            and cfg.all_day_busy
+            and event.transparency != "TRANSPARENT"
+            and event.status != "CANCELLED"
+        ):
             continue
         if event.all_day:
             interval = _clip((event.start, event.end), (start_of_day, end_of_day))

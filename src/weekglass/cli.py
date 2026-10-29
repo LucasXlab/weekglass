@@ -227,7 +227,8 @@ def _human_audit(report: Report, cfg: Config, json_path: str | None, html_path: 
 
     print(f"{bold('Weekglass')} {__version__} · {report.week_iso} · {report.timezone}")
     last_day = report.days[-1].date if report.days else report.week_start
-    print(f"{date_range_label(report.week_start, last_day)} · {len(report.days)} 个工作日")
+    day_unit = "天" if cfg.include_weekend else "个工作日"
+    print(f"{date_range_label(report.week_start, last_day)} · {len(report.days)} {day_unit}")
     print()
     m = report.metrics
     print(f"占用        {duration(m.busy_minutes)} / {duration(m.available_minutes)}（{percent(m.busy_pct)}）")

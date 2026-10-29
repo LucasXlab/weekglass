@@ -134,6 +134,12 @@ def test_after_hours_weekend_and_all_day():
     assert days[0].free_minutes == 0
     assert days[1].busy_minutes == 0
 
+    transparent = [
+        make_event(at(26, 0), at(27, 0), summary="透明全天", all_day=True, busy=False, transparency="TRANSPARENT")
+    ]
+    m, days = metrics(transparent, cfg)
+    assert days[0].busy_minutes == 0
+
 
 def test_include_weekend_changes_available_days():
     cfg = make_config(cli={"include_weekend": True})

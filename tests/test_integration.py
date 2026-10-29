@@ -55,3 +55,23 @@ def test_include_weekend_cli(tmp_path):
     report, _s, _p = analyze([str(path)], cfg)
     assert len(report.days) == 7
     assert report.days[-1].weekday == "周日"
+
+
+def test_transparent_all_day_does_not_occupy_even_with_flag(tmp_path):
+    path = simple_ics(
+        tmp_path,
+        "transparent.ics",
+        """BEGIN:VEVENT
+UID:transparent
+DTSTAMP:20261001T000000Z
+DTSTART;VALUE=DATE:20261028
+DTEND;VALUE=DATE:20261029
+TRANSP:TRANSPARENT
+SUMMARY:不占用的全天
+END:VEVENT""",
+    )
+    cfg = make_config(env={"WEEKGLASS_ALL_DAY_BUSY": "1"})
+    report, _suggestions, _plan = analyze([str(path)], cfg)
+    assert report.metrics.all_day_events == 1
+    assert report.days[2].all_day_events == 1
+    assert report.days[2].busy_minutes == 0

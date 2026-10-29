@@ -49,4 +49,4 @@ def build_plan(suggestions: list[Suggestion], cfg: Config) -> str:
         event.add("categories", ["专注"])
         event.add("x-weekglass-tz", cfg.tz_name)
         calendar.add_component(event)
-    return calendar.to_ical().decode("utf-8").replace("\r\n", "\n")
+    return calendar.to_ical().decode("utf-8")
