@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 96" role="img" aria-label="Weekglass 周镜">
+  <rect width="440" height="96" rx="4" fill="#175c46"/>
+  <g fill="none" stroke="#f7f5ef" stroke-width="3" stroke-linecap="square">
+    <rect x="28" y="24" width="48" height="48" rx="2"/>
+    <path d="M40 38h24M40 48h24M40 58h16"/>
+  </g>
+  <text x="100" y="49" fill="#f7f5ef" font-family="Iowan Old Style, Palatino Linotype, Georgia, serif" font-size="30">Weekglass</text>
+  <text x="101" y="73" fill="#d8f0e3" font-family="-apple-system, BlinkMacSystemFont, PingFang SC, sans-serif" font-size="13" letter-spacing="1.5">周镜 · 本地日历审计</text>
+</svg>
