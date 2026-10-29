@@ -92,7 +92,7 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
     try:
         calendar = Calendar.from_ical(raw)
     except Exception as exc:  # icalendar raises several parser exception types
-        raise CalendarError(f"无法解析 {path}：不是有效的 iCalendar 文件（{exc}）。", code="invalid_ics") from None
+        raise CalendarError(f"无法解析 {path}：不是有效的 iCalendar 文件。", code="invalid_ics") from None
     if not isinstance(calendar, Calendar):
         raise CalendarError(f"无法解析 {path}：文件中没有 VCALENDAR。", code="invalid_ics")
 

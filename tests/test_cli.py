@@ -209,6 +209,7 @@ def test_errors_have_exit_codes(tmp_path, capsys):
     code, _out, err = run(capsys, "audit", str(bad), "--week", "2026-10-26")
     assert code == 4
     assert "invalid_ics" in err
+    assert "BEGIN:VEVENT" not in err
 
     code, _out, err = run(capsys, "audit", str(work), "--week", "2026-1-1")
     assert code == 2
