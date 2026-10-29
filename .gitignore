@@ -1,0 +1,29 @@
+# 参照仓库只读，不提交
+reference/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 本地输出与演示产物
+weekglass-demo/
+*.ics.out
+*.report.html
+*.report.json
+
+# 系统与编辑器
+.DS_Store
+.idea/
+.vscode/
+
+# 本地构建缓存
+.pip-cache/
+*.whl
