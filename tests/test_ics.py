@@ -225,3 +225,39 @@ def test_too_many_calendars(tmp_path):
         paths.append(str(simple_ics(tmp_path, f"{i}.ics", vevent(uid=f"u{i}", start="20261026T100000", end="20261026T110000"))))
     with pytest.raises(InputError):
         load_events(paths, make_config())
+
+
+def test_secondly_recurrence_is_rejected_before_expansion(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:fast
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T091500
+RRULE:FREQ=SECONDLY
+SUMMARY:每秒
+END:VEVENT"""
+    )
+    path = write_ics(tmp_path, "fast.ics", body)
+    cfg = make_config(env={"WEEKGLASS_MAX_EVENTS": "1000"})
+    with pytest.raises(CalendarError) as exc:
+        load_events([str(path)], cfg)
+    assert exc.value.code == "recurrence_limit"
+
+
+def test_hourly_recurrence_budget_rejects_before_expansion(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:hourly
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T091500
+RRULE:FREQ=HOURLY
+SUMMARY:每小时
+END:VEVENT"""
+    )
+    path = write_ics(tmp_path, "hourly.ics", body)
+    cfg = make_config(env={"WEEKGLASS_MAX_EVENTS": "100"})
+    with pytest.raises(CalendarError) as exc:
+        load_events([str(path)], cfg)
+    assert exc.value.code == "recurrence_limit"

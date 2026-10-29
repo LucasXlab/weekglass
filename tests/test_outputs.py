@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import stat
 
 import pytest
@@ -81,3 +83,13 @@ def test_write_text_directory_failure(tmp_path):
     directory.mkdir()
     with pytest.raises(OutputWriteError):
         write_text(str(directory), "data", force=True)
+
+
+def test_duplicate_outputs_via_hard_link_are_rejected(tmp_path):
+    first = tmp_path / "first.json"
+    first.write_text("{}")
+    second = tmp_path / "second.json"
+    os.link(first, second)
+    with pytest.raises(UsageError) as exc:
+        preflight([str(first), str(second)], force=True)
+    assert exc.value.code == "duplicate_output"

@@ -324,3 +324,61 @@ def test_include_weekend_summary_says_days(tmp_path, capsys):
     assert code == 0, err
     assert "7 天" in out
     assert "7 个工作日" not in out
+
+
+def test_output_cannot_overwrite_input(tmp_path, capsys):
+    work = work_calendar(tmp_path)
+    before = work.read_bytes()
+    code, _out, err = run(
+        capsys,
+        "audit",
+        str(work),
+        "--week",
+        "2026-10-26",
+        "--html",
+        str(work),
+        "--force",
+    )
+    assert code == 2
+    assert "output_is_input" in err
+    assert work.read_bytes() == before
+
+
+def test_plan_output_cannot_overwrite_input(tmp_path, capsys):
+    work = work_calendar(tmp_path)
+    before = work.read_bytes()
+    code, _out, err = run(
+        capsys,
+        "plan",
+        str(work),
+        "--week",
+        "2026-10-26",
+        "--out",
+        str(work),
+        "--force",
+    )
+    assert code == 2
+    assert "output_is_input" in err
+    assert work.read_bytes() == before
+
+
+def test_demo_refuses_to_overwrite_real_calendar(tmp_path, capsys):
+    out = tmp_path / "demo"
+    out.mkdir()
+    real = out / "work.ics"
+    real.write_text("REAL CALENDAR, NOT A SAMPLE")
+    code, _out, err = run(capsys, "demo", "--out", str(out), "--force", "--quiet")
+    assert code == 6
+    assert real.read_text() == "REAL CALENDAR, NOT A SAMPLE"
+    assert "拒绝覆盖真实日历" in err
+
+
+def test_demo_invalid_config_does_not_touch_files(tmp_path, capsys, monkeypatch):
+    out = tmp_path / "demo"
+    out.mkdir()
+    real = out / "work.ics"
+    real.write_text("REAL CALENDAR, NOT A SAMPLE")
+    monkeypatch.setenv("WEEKGLASS_TZ", "Mars/Olympus")
+    code, _out, _err = run(capsys, "demo", "--out", str(out), "--force", "--quiet")
+    assert code == 8
+    assert real.read_text() == "REAL CALENDAR, NOT A SAMPLE"

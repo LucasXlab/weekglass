@@ -14,19 +14,58 @@ def is_stdout(path: str) -> bool:
     return path == "-"
 
 
+def _same_path(first: Path, second: Path) -> bool:
+    """True when two paths address the same file.
+
+    samefile() covers hard links, symlinks and case-insensitive filesystems
+    when both entries exist.  For two not-yet-created paths, parent + casefolded
+    name catches the APFS/NTFS case variant before either file is written.
+    """
+    try:
+        if first.exists() and second.exists() and os.path.samefile(first, second):
+            return True
+    except OSError:
+        pass
+    try:
+        left = first.resolve()
+        right = second.resolve()
+    except OSError:
+        left, right = first.absolute(), second.absolute()
+    if left == right:
+        return True
+    if left.parent == right.parent and left.name.casefold() == right.name.casefold():
+        return sys.platform in {"darwin", "win32"}
+    return False
+
+
+def reject_input_collisions(outputs: list[str], inputs: list[str]) -> None:
+    """Refuse to write an output over an input calendar, even with --force."""
+    input_paths = [Path(raw).expanduser() for raw in inputs]
+    for raw in outputs:
+        if is_stdout(raw):
+            continue
+        path = Path(raw).expanduser()
+        for input_path in input_paths:
+            if _same_path(path, input_path):
+                raise UsageError(
+                    f"输出路径 {raw} 与输入日历 {input_path} 是同一个文件；拒绝覆盖输入。",
+                    code="output_is_input",
+                )
+
+
 def preflight(paths: list[str], force: bool) -> None:
     stdout_count = sum(1 for path in paths if is_stdout(path))
     if stdout_count > 1:
         raise UsageError("同一时间只能有一个输出写到标准输出（-）。", code="two_stdout_outputs")
-    seen: dict[str, str] = {}
+    seen: list[tuple[Path, str]] = []
     for raw in paths:
         if is_stdout(raw):
             continue
         path = Path(raw).expanduser()
-        key = str(path.resolve())
-        if key in seen:
-            raise UsageError(f"输出路径重复：{seen[key]} 和 {raw} 指向同一个文件。", code="duplicate_output")
-        seen[key] = raw
+        for existing, existing_raw in seen:
+            if _same_path(path, existing):
+                raise UsageError(f"输出路径重复：{existing_raw} 和 {raw} 指向同一个文件。", code="duplicate_output")
+        seen.append((path, raw))
         if path.exists() and not force:
             raise OutputExistsError(f"{path} 已存在；加 --force 覆盖。", code="output_exists")
 

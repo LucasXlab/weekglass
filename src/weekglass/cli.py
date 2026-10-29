@@ -26,7 +26,7 @@ from .formatting import clock, date_range_label, duration, percent
 from .ics import load_events
 from .metrics import compute_metrics, suggest_focus_blocks
 from .model import Report, Suggestion, Warning
-from .outputs import is_stdout, preflight, write_text
+from .outputs import is_stdout, preflight, reject_input_collisions, write_text
 from .planner import build_plan
 from .report import render_html, render_json
 from .sample import DEMO_WEEK, PERSONAL_ICS, WORK_ICS
@@ -300,6 +300,7 @@ def run_audit(args: argparse.Namespace) -> int:
     plan_path = args.plan_out
     paths = [path for path in (args.json, args.html, plan_path) if path]
     if paths:
+        reject_input_collisions(paths, args.calendars)
         preflight(paths, args.force)
     report, suggestions, plan_text = analyze(args.calendars, cfg, plan_path)
     _write_outputs(args, report, cfg, suggestions, plan_text)
@@ -315,6 +316,7 @@ def run_plan(args: argparse.Namespace) -> int:
     if args.out == "-" and args.json == "-":
         raise UsageError("--out 和 --json 不能同时写标准输出。", code="two_stdout_outputs")
     paths = [path for path in (args.out, args.json) if path]
+    reject_input_collisions(paths, args.calendars)
     preflight(paths, args.force)
     report, suggestions, plan_text = analyze(args.calendars, cfg, args.out if args.out != "-" else "-")
     if not suggestions:
@@ -358,15 +360,46 @@ def _ensure_demo_dir(path: Path, force: bool) -> None:
         raise OutputWriteError(f"无法创建目录 {path}：{exc.strerror or exc}。", code="write_failed") from None
 
 
+def _check_demo_existing(path: Path, force: bool) -> None:
+    """With --force, only overwrite the demo's own sample calendars.
+
+    A real work.ics in the target directory must never be silently replaced;
+    unknown files are also refused so --out $HOME cannot sweep a home directory.
+    """
+    if not force:
+        return
+    allowed = {"work.ics", "personal.ics", "report.html", "report.json", "focus.ics"}
+    for entry in path.iterdir():
+        if entry.name not in allowed:
+            raise OutputExistsError(
+                f"{path} 含非示例文件 {entry.name}；拒绝 --force 覆盖。换一个空目录。",
+                code="output_exists",
+            )
+        if not entry.is_file():
+            raise OutputExistsError(
+                f"{path} 含同名目录 {entry.name}；换一个空目录。",
+                code="output_exists",
+            )
+    for name, expected in (("work.ics", WORK_ICS), ("personal.ics", PERSONAL_ICS)):
+        candidate = path / name
+        if not candidate.exists():
+            continue
+        try:
+            actual = candidate.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise OutputExistsError(f"无法检查 {candidate}：{exc.strerror or exc}。", code="output_exists") from None
+        if actual != expected:
+            raise OutputExistsError(
+                f"{candidate} 存在但不是示例文件；拒绝覆盖真实日历。换一个空目录，或先移走它。",
+                code="output_exists",
+            )
+
+
 def run_demo(args: argparse.Namespace) -> int:
     if args.out == "-":
         raise UsageError("--out 需要一个目录，不能是 -。", code="bad_output")
     out = Path(args.out).expanduser()
     _ensure_demo_dir(out, args.force)
-    work = out / "work.ics"
-    personal = out / "personal.ics"
-    for path, content in ((work, WORK_ICS), (personal, PERSONAL_ICS)):
-        write_text(str(path), content, force=True)
     cfg = _config(
         args,
         {
@@ -374,10 +407,15 @@ def run_demo(args: argparse.Namespace) -> int:
             "week": DEMO_WEEK,
         },
     )
+    _check_demo_existing(out, args.force)
+    work = out / "work.ics"
+    personal = out / "personal.ics"
     report_path = out / "report.html"
     json_path = out / "report.json"
     plan_path = out / "focus.ics"
     preflight([str(report_path), str(json_path), str(plan_path)], args.force)
+    for path, content in ((work, WORK_ICS), (personal, PERSONAL_ICS)):
+        write_text(str(path), content, force=True)
     report, suggestions, plan_text = analyze([str(work), str(personal)], cfg, str(plan_path))
     _write_outputs(
         argparse.Namespace(

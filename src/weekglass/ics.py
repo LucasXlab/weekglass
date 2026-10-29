@@ -60,6 +60,90 @@ def _is_focus(summary: str, categories: list[str]) -> bool:
     return "focus" in haystack or "专注" in haystack
 
 
+def _first(value):
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
+def _rdate_count(value) -> int:
+    if value is None:
+        return 0
+    items = value if isinstance(value, list) else [value]
+    total = 0
+    for item in items:
+        dates = getattr(item, "dts", None)
+        total += len(dates) if dates is not None else 1
+    return total
+
+
+def _check_recurrence_budget(raw_events, start: datetime, end: datetime, limit: int, path: Path) -> None:
+    """Reject rules that would materialise far more than ``limit`` occurrences.
+
+    recurring-ical-events returns a full list, so a tiny SECONDLY rule can use
+    gigabytes before the post-expansion max-events check is reached.  Estimate
+    from FREQ and the expansion window first.
+    """
+    total = len(raw_events)
+    seconds = max(0.0, (end - start).total_seconds())
+    for component in raw_events:
+        try:
+            rule = component.get("RRULE")
+        except Exception:  # broken RRULE property; skip_bad_series will handle it
+            rule = None
+        if rule is not None:
+            rules = rule if isinstance(rule, list) else [rule]
+            for item in rules:
+                try:
+                    frequency = _first(item.get("FREQ"))
+                    if frequency is None:
+                        continue
+                    name = str(frequency).upper()
+                    if name in {"SECONDLY", "MINUTELY"}:
+                        raise CalendarError(
+                            f"{path} 含 {name} 重复规则；展开会超过 {limit} 个事件上限，已拒绝。",
+                            code="recurrence_limit",
+                        )
+                    interval_raw = _first(item.get("INTERVAL")) or 1
+                    try:
+                        interval = max(1, int(interval_raw))
+                    except (TypeError, ValueError):
+                        interval = 1
+                    if name == "HOURLY":
+                        units = int((seconds + 3599) // 3600)
+                    elif name == "DAILY":
+                        units = int((seconds + 86399) // 86400)
+                    elif name == "WEEKLY":
+                        units = int((seconds + 7 * 86400 - 1) // (7 * 86400))
+                    elif name == "MONTHLY":
+                        units = int((seconds + 30 * 86400 - 1) // (30 * 86400))
+                    elif name == "YEARLY":
+                        units = int((seconds + 365 * 86400 - 1) // (365 * 86400))
+                    else:
+                        continue
+                    count = units // interval + 1
+                    count_raw = _first(item.get("COUNT"))
+                    if count_raw is not None:
+                        try:
+                            count = min(count, int(count_raw))
+                        except (TypeError, ValueError):
+                            pass
+                    total += count
+                except CalendarError:
+                    raise
+                except Exception:
+                    continue
+        try:
+            total += _rdate_count(component.get("RDATE"))
+        except Exception:
+            pass
+        if total > limit:
+            raise CalendarError(
+                f"{path} 的重复规则在展开窗口内可能超过 {limit} 个事件，已拒绝；请缩小日历或修正重复规则。",
+                code="recurrence_limit",
+            )
+
+
 def _localize(value: datetime, cfg: Config, source: str, warnings: list[Warning]) -> datetime:
     """Attach the configured timezone to a floating datetime."""
     if value.tzinfo is None:
@@ -162,6 +246,7 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
     # not lost at the edges.  Metrics clip to the actual work window later.
     expand_start = start_local - timedelta(days=2)
     expand_end = end_local + timedelta(days=2)
+    _check_recurrence_budget(raw_events, expand_start, expand_end, cfg.max_events, path)
     try:
         occurrences = recurring_ical_events.of(calendar, skip_bad_series=True).between(expand_start, expand_end)
     except Exception as exc:
