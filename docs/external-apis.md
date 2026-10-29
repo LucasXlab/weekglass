@@ -44,7 +44,7 @@ python -c "import importlib.metadata as m; print(m.version('icalendar'), m.versi
 
 - Google Calendar API / Microsoft Graph：未使用，避免 OAuth 和云端授权。
 - 任何 LLM/embedding API：未使用；报告数字全部由本地确定性代码计算。
-- 行情/基金/券商 API：未使用；相关候选没有入选。
+- 行情/基金/券商 API：未使用；这类候选没有入选。
 - 遥测、崩溃上报、CDN、外部字体：未使用；HTML 报告 CSP 为 `default-src 'none'`。
 
 ## 5. 已知限制（与接口无关，但影响数据正确性）
