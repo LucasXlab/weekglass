@@ -29,7 +29,7 @@ weekglass audit /tmp/wgdemo/work.ics /tmp/wgdemo/personal.ics \
 ## 最近验证
 
 - `pytest -q`：139 passed（2026-10-29，Python 3.13.5，Asia/Shanghai fixture；本轮末尾连续 3 次复跑）。
-- 干净 clone `/tmp/weekglass-final`：按 README 安装、demo 0.101s、5 个 0600 文件、`.[dev]` 后 139 passed；见 `notes/安装实录.md`。
+- 干净 clone `/tmp/weekglass-final`：按 README 安装、demo 0.29s、5 个 0600 文件、`.[dev]` 后 139 passed；见 `notes/安装实录.md`。
 - `weekglass demo`：生成 5 个文件；占用 16h45/40h（42%）、完整专注 10h30（5 块）、碎片 12h45（55%）。报告 1280/375/320px 无水平滚动；`h1` 52/32/32px；无 JS/外链/图片。
 - wheel：`weekglass-0.1.0-py3-none-any.whl` 包含 `weekglass/templates/report.html.j2`。
 
