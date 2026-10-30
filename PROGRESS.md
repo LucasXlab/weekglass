@@ -37,5 +37,12 @@ weekglass audit /tmp/wgdemo/work.ics /tmp/wgdemo/personal.ics \
 
 1. ~~最终 3 次 `pytest -q` 全绿~~（见交付输出）。
 2. ~~全新目录 clone + 按 README 安装~~（`notes/安装实录.md`）。
-3. 本地 `git tag v0.1.0`（不 push、不发布）。
-4. 最终总结：测试数、最后输出、已知问题、偏离数、发布前人工任务。
+3. ~~本地 `git tag v0.1.0`（不 push、不发布）~~（已打，tag 指向最终交付提交）。
+4. ~~最终总结：测试数、最后输出、已知问题、偏离数、发布前人工任务~~（见交付说明）。
+
+## 最终状态
+
+- 版本：`0.1.0`；本地标签 `v0.1.0`；无远程、未 push、未发布。
+- 测试：137 passed，连续 3 次；干净 clone 的 `.[dev]` 测试 137 passed。
+- 构建：`weekglass-0.1.0-py3-none-any.whl`（43,528 字节）包含模板与 LICENSE。
+- 复查：正确性/安全/新用户体验三份独立评审的严重问题均已修并留回归测试；残余已知限制见 README 和 `notes/评审记录.md`。
