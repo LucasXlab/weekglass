@@ -382,3 +382,86 @@ def test_demo_invalid_config_does_not_touch_files(tmp_path, capsys, monkeypatch)
     code, _out, _err = run(capsys, "demo", "--out", str(out), "--force", "--quiet")
     assert code == 8
     assert real.read_text() == "REAL CALENDAR, NOT A SAMPLE"
+
+
+def test_weekend_events_are_reported_as_excluded(tmp_path, capsys):
+    path = simple_ics(
+        tmp_path,
+        "weekend.ics",
+        vevent(uid="sat", start="20261031T100000", end="20261031T110000", summary="周六事件"),
+    )
+    code, out, err = run(
+        capsys,
+        "audit",
+        str(path),
+        "--week",
+        "2026-10-26",
+        "--timezone",
+        "Asia/Shanghai",
+        "--now",
+        "2026-10-29T18:00:00+08:00",
+    )
+    assert code == 0, err
+    assert "另有 1 个周末事件" in out
+    assert "--include-weekend" in out
+
+
+def test_empty_week_warning_in_terminal(tmp_path, capsys):
+    path = simple_ics(tmp_path, "empty.ics", "")
+    code, out, err = run(capsys, "audit", str(path), "--week", "2026-10-26")
+    assert code == 0, err
+    assert "本周文件内没有事件" in out
+
+
+def test_work_hours_lunch_error_has_next_step(tmp_path, capsys):
+    path = work_calendar(tmp_path)
+    code, _out, err = run(capsys, "audit", str(path), "--week", "2026-10-26", "--work-hours", "08:00-12:00")
+    assert code == 2
+    assert "提示：" in err
+    assert "--lunch off" in err
+
+
+def test_bad_input_errors_explain_next_step(tmp_path, capsys):
+    missing = tmp_path / "missing.ics"
+    code, _out, err = run(capsys, "audit", str(missing), "--week", "2026-10-26")
+    assert code == 3
+    assert "提示：" in err
+
+    bad = tmp_path / "bad.ics"
+    bad.write_text("not a calendar")
+    code, _out, err = run(capsys, "audit", str(bad), "--week", "2026-10-26")
+    assert code == 4
+    assert "BEGIN:VCALENDAR" in err
+
+
+def test_missing_argument_usage_is_chinese(tmp_path, capsys):
+    code, _out, err = run(capsys, "audit")
+    assert code == 2
+    assert "参数错误" in err
+    assert "用法" in err
+
+
+def test_audit_quiet_empty_week_with_existing_plan_is_silent(tmp_path, capsys):
+    empty = simple_ics(
+        tmp_path,
+        "fullweek.ics",
+        *[
+            vevent(uid=f"full{day}", start=f"202610{day}T090000", end=f"202610{day}T180000", summary="占满")
+            for day in range(26, 31)
+        ],
+    )
+    plan = tmp_path / "focus.ics"
+    plan.write_text("KEEP")
+    code, _out, err = run(
+        capsys,
+        "audit",
+        str(empty),
+        "--week",
+        "2026-10-26",
+        "--plan-out",
+        str(plan),
+        "--quiet",
+    )
+    assert code == 0
+    assert err == ""
+    assert plan.read_text() == "KEEP"

@@ -33,6 +33,14 @@ def _text(value) -> str:
     return str(value) if value is not None else ""
 
 
+def _tzid(prop) -> str | None:
+    try:
+        value = prop.params.get("TZID")
+    except Exception:
+        return None
+    return str(value) if value is not None else None
+
+
 def _categories(component) -> list[str]:
     raw = component.get("CATEGORIES")
     if raw is None:
@@ -100,10 +108,33 @@ def _check_recurrence_budget(raw_events, start: datetime, end: datetime, limit: 
                         continue
                     name = str(frequency).upper()
                     if name in {"SECONDLY", "MINUTELY"}:
-                        raise CalendarError(
-                            f"{path} 含 {name} 重复规则；展开会超过 {limit} 个事件上限，已拒绝。",
-                            code="recurrence_limit",
-                        )
+                        count_raw = _first(item.get("COUNT"))
+                        if count_raw is not None:
+                            try:
+                                count = int(count_raw)
+                            except (TypeError, ValueError):
+                                count = limit + 1
+                            total += max(0, count)
+                            if total > limit:
+                                raise CalendarError(
+                                    f"{path} 的 {name} 重复规则 COUNT={count_raw} 超过 {limit} 个事件上限，已拒绝。",
+                                    code="recurrence_limit",
+                                )
+                            continue
+                        unit = 1 if name == "SECONDLY" else 60
+                        interval_raw = _first(item.get("INTERVAL")) or 1
+                        try:
+                            interval = max(1, int(interval_raw))
+                        except (TypeError, ValueError):
+                            interval = 1
+                        units = int((seconds + unit - 1) // unit)
+                        total += units // interval + 1
+                        if total > limit:
+                            raise CalendarError(
+                                f"{path} 含 {name} 重复规则；展开会超过 {limit} 个事件上限，已拒绝。",
+                                code="recurrence_limit",
+                            )
+                        continue
                     interval_raw = _first(item.get("INTERVAL")) or 1
                     try:
                         interval = max(1, int(interval_raw))
@@ -144,15 +175,29 @@ def _check_recurrence_budget(raw_events, start: datetime, end: datetime, limit: 
             )
 
 
-def _localize(value: datetime, cfg: Config, source: str, warnings: list[Warning]) -> datetime:
+def _localize(
+    value: datetime,
+    cfg: Config,
+    source: str,
+    warnings: list[Warning],
+    tzid: str | None = None,
+) -> datetime:
     """Attach the configured timezone to a floating datetime."""
     if value.tzinfo is None:
-        _warning(
-            warnings,
-            "floating_time",
-            "事件没有时区，已按配置时区解释；请在日历设置中开启时区，避免跨时区错误。",
-            source,
-        )
+        if tzid:
+            _warning(
+                warnings,
+                "unknown_tzid",
+                f"事件时区 {tzid!r} 无法识别，已按 {cfg.tz_name} 解释；请确认导出时区或改用 UTC 导出。",
+                source,
+            )
+        else:
+            _warning(
+                warnings,
+                "floating_time",
+                "事件没有时区，已按配置时区解释；请在日历设置中开启时区，避免跨时区错误。",
+                source,
+            )
         return value.replace(tzinfo=cfg.tz)
     return value.astimezone(cfg.tz)
 
@@ -161,36 +206,62 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
     try:
         stat = path.stat()
     except OSError as exc:
-        raise InputError(f"无法读取日历文件 {path}：{exc.strerror or exc}", code="file_unreadable") from None
+        raise InputError(
+            f"无法读取日历文件 {path}：{exc.strerror or exc}",
+            code="file_unreadable",
+            hint="确认路径、权限和文件是否存在。",
+        ) from None
     if not path.is_file():
-        raise InputError(f"{path} 不是普通文件。", code="not_a_file")
+        raise InputError(f"{path} 不是普通文件。", code="not_a_file", hint="请传入一个 .ics 文件，而不是目录或设备。")
     if stat.st_size > cfg.max_file_bytes:
         limit = cfg.max_file_bytes // (1024 * 1024)
         raise CalendarError(f"{path} 有 {stat.st_size} 字节，超过 {limit} MB 上限。", code="file_too_large")
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        raise InputError(f"无法读取日历文件 {path}：{exc.strerror or exc}", code="file_unreadable") from None
+        raise InputError(
+            f"无法读取日历文件 {path}：{exc.strerror or exc}",
+            code="file_unreadable",
+            hint="确认路径、权限和文件是否存在。",
+        ) from None
 
     source_name = path.name
     try:
         calendar = Calendar.from_ical(raw)
     except Exception as exc:  # icalendar raises several parser exception types
-        raise CalendarError(f"无法解析 {path}：不是有效的 iCalendar 文件。", code="invalid_ics") from None
+        raise CalendarError(
+            f"无法解析 {path}：不是有效的 iCalendar 文件。",
+            code="invalid_ics",
+            hint="请从日历重新导出，确认文件以 BEGIN:VCALENDAR 开头。",
+        ) from None
     if not isinstance(calendar, Calendar):
-        raise CalendarError(f"无法解析 {path}：文件中没有 VCALENDAR。", code="invalid_ics")
+        raise CalendarError(
+            f"无法解析 {path}：文件中没有 VCALENDAR。",
+            code="invalid_ics",
+            hint="请从日历重新导出，确认文件以 BEGIN:VCALENDAR 开头。",
+        )
 
     raw_events = [item for item in calendar.walk("VEVENT")]
-    override_ids: set[str] = set()
+    source_tzids: dict[str, str] = {}
+    for raw_event in raw_events:
+        raw_uid = _text(raw_event.get("UID"))
+        raw_start_prop = raw_event.get("DTSTART")
+        if raw_uid and raw_start_prop is not None:
+            tzid = _tzid(raw_start_prop)
+            if tzid:
+                source_tzids[raw_uid] = tzid
+
+    override_ids: set[tuple[str, str]] = set()
     zero_start_by_uid: dict[str, datetime] = {}
+    zero_no_uid: list[tuple[str, datetime, datetime, datetime]] = []
     for raw_event in raw_events:
         recurrence_prop = raw_event.get("RECURRENCE-ID")
         if recurrence_prop is None or getattr(recurrence_prop, "dt", None) is None:
             continue
         rid = recurrence_prop.dt
         if isinstance(rid, datetime):
-            rid = _localize(rid, cfg, source_name, warnings)
-        override_ids.add(rid.isoformat())
+            rid = _localize(rid, cfg, source_name, warnings, _tzid(recurrence_prop))
+        override_ids.add((_text(raw_event.get("UID")), rid.isoformat()))
 
     for raw_event in raw_events:
         raw_start_prop = raw_event.get("DTSTART")
@@ -214,12 +285,20 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
             continue
         _warning(warnings, "end_before_start", "有事件的结束时间早于开始时间，已按零时长处理。", source_name)
         raw_uid = _text(raw_event.get("UID"))
-        if not raw_uid:
-            continue
         if isinstance(raw_start_value, datetime):
-            zero_start_by_uid[raw_uid] = _localize(raw_start_value, cfg, source_name, warnings)
+            local_start = _localize(
+                raw_start_value, cfg, source_name, warnings, _tzid(raw_start_prop)
+            )
+            local_end = _localize(raw_end_value, cfg, source_name, warnings, _tzid(raw_end_prop))
         else:
-            zero_start_by_uid[raw_uid] = datetime.combine(raw_start_value, time(0, 0), tzinfo=cfg.tz)
+            local_start = datetime.combine(raw_start_value, time(0, 0), tzinfo=cfg.tz)
+            local_end = datetime.combine(raw_end_value, time(0, 0), tzinfo=cfg.tz)
+        if raw_uid:
+            zero_start_by_uid[raw_uid] = local_start
+        else:
+            zero_no_uid.append(
+                (_text(raw_event.get("SUMMARY")) or "（无标题）", local_start, local_end, local_start)
+            )
 
     if len(raw_events) > cfg.max_events:
         raise CalendarError(f"{path} 有 {len(raw_events)} 个 VEVENT，超过 {cfg.max_events} 个上限。", code="too_many_events")
@@ -267,6 +346,8 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
             continue
         raw_start = dtstart_prop.dt
         all_day = isinstance(raw_start, date) and not isinstance(raw_start, datetime)
+        uid_hint = _text(comp.get("UID"))
+        tzid_hint = _tzid(dtstart_prop) or source_tzids.get(uid_hint)
 
         status = _text(comp.get("STATUS") or "CONFIRMED").upper()
         if status not in {"CONFIRMED", "TENTATIVE", "CANCELLED"}:
@@ -285,13 +366,15 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
                 end_date = raw_start + timedelta(days=1)
             end = datetime.combine(end_date, time(0, 0), tzinfo=cfg.tz)
         else:
-            start = _localize(raw_start, cfg, source_name, warnings)
+            start = _localize(raw_start, cfg, source_name, warnings, tzid_hint)
             end = start
             dtend_prop = comp.get("DTEND")
             if dtend_prop is not None:
                 raw_end = dtend_prop.dt
                 if isinstance(raw_end, datetime):
-                    end = _localize(raw_end, cfg, source_name, warnings)
+                    end = _localize(
+                        raw_end, cfg, source_name, warnings, _tzid(dtend_prop) or tzid_hint
+                    )
                 else:
                     end = datetime.combine(raw_end, time(0, 0), tzinfo=cfg.tz)
             elif comp.get("DURATION") is not None:
@@ -310,6 +393,17 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
             # the original start and make the occurrence zero-length.
             start = zero_start_by_uid[uid]
             end = start
+        elif not uid:
+            candidate_summary = _text(comp.get("SUMMARY")) or "（无标题）"
+            for summary_hint, raw_start_hint, raw_end_hint, original_start in zero_no_uid:
+                if (
+                    summary_hint == candidate_summary
+                    and start == raw_end_hint
+                    and end == raw_start_hint
+                ):
+                    start = original_start
+                    end = start
+                    break
         summary = _text(comp.get("SUMMARY")) or "（无标题）"
         categories = _categories(comp)
         recurrence_prop = comp.get("RECURRENCE-ID")
@@ -317,11 +411,13 @@ def _parse_one_file(path: Path, cfg: Config, warnings: list[Warning]) -> tuple[S
         if recurrence_prop is not None and getattr(recurrence_prop, "dt", None) is not None:
             rid = recurrence_prop.dt
             if isinstance(rid, datetime):
-                rid = _localize(rid, cfg, source_name, warnings)
+                rid = _localize(
+                    rid, cfg, source_name, warnings, _tzid(recurrence_prop) or source_tzids.get(uid)
+                )
                 candidate = rid.isoformat()
             else:
                 candidate = rid.isoformat()
-            if candidate in override_ids:
+            if (uid, candidate) in override_ids:
                 recurrence_id = candidate
         if not uid:
             digest = hashlib.sha1(f"{summary}|{start.isoformat()}|{end.isoformat()}".encode()).hexdigest()[:16]
@@ -368,7 +464,11 @@ def load_events(paths: list[str], cfg: Config) -> tuple[list[SourceInfo], list[E
     if not paths:
         raise InputError("至少需要一个 .ics 文件。", code="no_input")
     if len(paths) > MAX_CALENDARS:
-        raise InputError(f"一次最多读取 {MAX_CALENDARS} 个日历文件。", code="too_many_calendars")
+        raise InputError(
+            f"一次最多读取 {MAX_CALENDARS} 个日历文件。",
+            code="too_many_calendars",
+            hint="先合并为较少的 .ics，或分多次运行。",
+        )
 
     sources: list[SourceInfo] = []
     warnings: list[Warning] = []

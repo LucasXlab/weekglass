@@ -15,6 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import ConfigError, UsageError
+from .formatting import span_minutes
 
 CLOCK_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 WEEK_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -163,10 +164,10 @@ class Config:
 
     def available_minutes(self, day: date) -> int:
         start, end = self.day_window(day)
-        total = int((end - start).total_seconds() // 60)
+        total = span_minutes(start, end)
         lunch = self.lunch_window(day)
         if lunch:
-            total -= int((lunch[1] - lunch[0]).total_seconds() // 60)
+            total -= span_minutes(lunch[0], lunch[1])
         return total
 
     def week_bounds(self) -> tuple[datetime, datetime]:
@@ -183,8 +184,8 @@ def load_config(env: dict[str, str] | None = None, *, cli: dict | None = None) -
         if key in source:
             values[key] = source[key]
 
-    def fail(key: str, message: str) -> ConfigError:
-        return ConfigError(f"配置错误：{key}={values.get(key)!r}；{message}", code="bad_config")
+    def fail(key: str, message: str, hint: str | None = None) -> ConfigError:
+        return ConfigError(f"配置错误：{key}={values.get(key)!r}；{message}", code="bad_config", hint=hint)
 
     # Timezone first: it affects NOW and the week.
     tz_name = values["WEEKGLASS_TZ"].strip() or _local_zone_name()
@@ -218,7 +219,11 @@ def load_config(env: dict[str, str] | None = None, *, cli: dict | None = None) -
                 code="bad_config",
             )
         if lunch_start < work_start or lunch_end > work_end:
-            raise fail("WEEKGLASS_LUNCH_START", "午休必须落在工作时间内。")
+            raise fail(
+                "WEEKGLASS_LUNCH_START",
+                "午休必须落在工作时间内。",
+                "把午休设进工作时段，或把 WEEKGLASS_LUNCH_START/END 都设为 off。",
+            )
 
     min_focus = parse_int(values["WEEKGLASS_MIN_FOCUS_MINUTES"], "WEEKGLASS_MIN_FOCUS_MINUTES", 15, 480)
     max_suggestions = parse_int(values["WEEKGLASS_MAX_SUGGESTIONS"], "WEEKGLASS_MAX_SUGGESTIONS", 0, 20)
@@ -316,7 +321,11 @@ def apply_cli(config: Config, cli: dict) -> Config:
     if (config.lunch_start is None) != (config.lunch_end is None):
         raise UsageError("--lunch 必须同时给出开始和结束，或写 off。", code="bad_lunch")
     if config.lunch_start and (config.lunch_start < config.work_start or config.lunch_end > config.work_end):
-        raise UsageError("--lunch 必须落在工作时间内。", code="bad_lunch")
+        raise UsageError(
+            "--lunch 必须落在工作时间内。",
+            code="bad_lunch",
+            hint="加 --lunch off，或把午休时间设进 --work-hours 的范围。",
+        )
     if config.lunch_start and config.lunch_end <= config.lunch_start:
         raise UsageError("--lunch 的结束必须晚于开始。", code="bad_lunch")
     available = (config.work_end.hour * 60 + config.work_end.minute) - (config.work_start.hour * 60 + config.work_start.minute)

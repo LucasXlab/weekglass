@@ -95,3 +95,56 @@ def test_html_without_suggestions_and_with_warning(tmp_path):
     html = render_html(report, cfg, None)
     assert "没有 ≥ 90 分钟的连续空闲" in html
     assert "本次没有生成 .ics 文件" in html
+
+
+def test_zero_length_event_appears_in_details(tmp_path):
+    from .conftest import at, make_config, make_event
+
+    cfg = make_config()
+    event = make_event(at(26, 10), at(26, 10), summary="零长度事件")
+    from weekglass.metrics import compute_metrics
+    from weekglass.model import Report
+    from weekglass import SCHEMA_VERSION, __version__
+
+    metrics, days = compute_metrics([event], cfg, duplicates=0, cancelled=0, transparent=0)
+    report = Report(
+        schema_version=SCHEMA_VERSION,
+        tool_name="weekglass",
+        tool_version=__version__,
+        generated_at=cfg.now,
+        week_iso=cfg.week_iso,
+        week_start=cfg.week_start,
+        week_end=cfg.week_end,
+        timezone=cfg.tz_name,
+        settings={},
+        sources=[],
+        metrics=metrics,
+        days=days,
+        events=[event],
+        suggestions=[],
+        warnings=[],
+    )
+    from weekglass.report import render_html
+
+    html = render_html(report, cfg, None)
+    assert "零长度事件" in html
+
+
+def test_timeline_uses_full_events_when_details_are_truncated(tmp_path):
+    from dataclasses import replace
+
+    from .conftest import make_config
+
+    path = simple_ics(
+        tmp_path,
+        "two.ics",
+        vevent(uid="a", start="20261026T090000", end="20261026T100000", summary="早"),
+        vevent(uid="b", start="20261026T110000", end="20261026T120000", summary="晚"),
+    )
+    cfg = replace(make_config(), max_report_events=1)
+    report, _suggestions, _plan = analyze([str(path)], cfg, None)
+    assert len(report.events) == 1
+    assert len(report.events_full) == 2
+    view = build_view(report, cfg, None)
+    busy = [segment for segment in view["days"][0]["segments"] if segment["kind"] == "busy"]
+    assert len(busy) == 2

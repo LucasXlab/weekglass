@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+
+
+def span_minutes(start: datetime, end: datetime) -> int:
+    """Actual elapsed whole minutes, including DST transitions."""
+    if start.tzinfo is None or end.tzinfo is None:
+        return max(0, int((end - start).total_seconds() // 60))
+    return max(0, int((end.astimezone(timezone.utc) - start.astimezone(timezone.utc)).total_seconds() // 60))
 
 
 def round1(value: float) -> float:

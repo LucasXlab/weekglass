@@ -340,7 +340,10 @@ a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outli
   </section>
 
   <details class="details">
-    <summary>事件明细（{{ view.metrics.event_count }} 个，点击展开）</summary>
+    <summary>事件明细（可用日 {{ view.details_count }} 个，点击展开）</summary>
+    {% if view.hidden_events %}
+    <p class="note">另有 {{ view.hidden_events }} 个周末事件（{{ view.hidden_minutes|duration }}）未计入按天表格；加 <code>--include-weekend</code> 可查看。</p>
+    {% endif %}
     <table class="table">
       <thead><tr><th scope="col">日期</th><th scope="col">事件</th><th scope="col">来源</th><th scope="col">时间</th></tr></thead>
       <tbody>

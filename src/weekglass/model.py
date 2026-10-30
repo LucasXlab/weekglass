@@ -216,6 +216,7 @@ class Report:
     suggestions: list[Suggestion]
     warnings: list[Warning]
     plan_path: str | None = None
+    events_full: list[Event] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

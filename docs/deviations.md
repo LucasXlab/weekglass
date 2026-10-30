@@ -12,7 +12,7 @@
 | D-06 | 任务允许使用 LLM（需 mock） | 不使用 LLM | 指标是确定性计算；避免编造和密钥 | 无模型成本、无 mock 开关 |
 | D-07 | 环境变量包含 `WEEKGLASS_LOG_LEVEL` | 删除该变量，只保留 `--debug` | 原先没有日志实现，保留会是空开关 | 少一个无效配置；错误仍走 stderr |
 | D-08 | `--include-weekend`/`--all-day-busy` 可开可关 | CLI 只有开启开关；关闭靠环境变量默认 0 | argparse 只加一个 flag，避免成对参数 | 环境变量设为 1 时 CLI 不能关；记在这里 |
-| D-09 | `audit --plan-out` 没有建议时不写文件 | 仍先检查 `--plan-out` 是否存在；存在且无 `--force` 会先退出 6 | 所有输出在读取前统一 preflight | 没有建议但旧计划文件存在时，需要 `--force` 或换路径 |
+| D-09 | `audit --plan-out` 没有建议时不写文件 | 没有建议时不检查也不写 `--plan-out`；HTML/JSON 仍在读取前 preflight | 没有计划可写时不应因旧计划文件存在而失败 | 空周 + 已有计划文件退出 0，旧文件保持原样 |
 | D-10 | `plan` 没有建议时退出 5 | 先 preflight 输出；输出已存在时可能先退出 6 | 避免分析后才发现不能写 | 错误码优先级为“输出存在 > 无建议” |
 | D-11 | HTML 显示计划路径 | HTML 只显示 basename；JSON `plan_path` 保留传入路径 | 报告可能被分享，减少绝对路径泄露 | 两处路径表示不同，SPEC 已写明 |
 | D-12 | 输出文件权限未规定 | POSIX 上为 0600 | 临时文件默认 0600，经 `os.replace` 保留；日历数据敏感 | 同机其他用户不可读；Windows 不保证 |
@@ -34,6 +34,19 @@
 | D-28 | 输出父目录不存在时由用户创建 | 自动创建父目录 | 减少一次失败 | 权限不足时退出 7 |
 | D-29 | 错误信息带链接/文档 | 只带中文说明和下一步提示，不带 URL | 离线可用，避免死链 | 文档在 README/docs 索引 |
 | D-30 | 发布到 PyPI | 不发布；只本地安装/打标签 | 用户要求不发布 | README 写明本地安装 |
+| D-31 | 输出路径与输入日历互不冲突由用户保证 | 写前用 `samefile`/解析路径/同目录大小写比较拒绝；退出 2 | 安全评审复现 `--force` 把 HTML 写到输入 `.ics` 上 | 输入永不被输出覆盖，即使 `--force` |
+| D-32 | `demo --force` 覆盖目录内所有同名文件 | 只允许示例文件名；`work.ics`/`personal.ics` 内容不是示例就拒绝（退出 6）；坏配置先于写文件 | 安全评审复现真实日历被示例替换、坏配置留下半成品 | 真实日历不会被静默覆盖；目标目录需为空或只含示例 |
+| D-33 | 只按展开后事件数限制 | 展开前按 FREQ/COUNT/INTERVAL/窗口估算；SECONDLY/MINUTELY 无 COUNT 直接拒绝，COUNT 受限则放行 | 安全评审复现 250 字节 SECONDLY 规则 20 秒/2.28 GB；正确性评审要求合法 `COUNT=2` 可用 | 极小恶意规则快速退出 4；合法小 COUNT 正常展开 |
+| D-34 | 未知 TZID 与无时区共用 `floating_time` | 新增 `unknown_tzid`，消息里写 TZID 和实际解释时区 | UX 评审指出用户会去找不存在的“没开时区”设置 | 原因可定位；`floating_time` 只用于真正无时区 |
+| D-35 | 空周日历静默显示 40 小时空闲 | `event_count==0` 时加 `empty_week` 警告，终端/HTML/JSON 都显示 | UX 评审误以为 `--week` 填错时是“完美空闲周” | 用户先检查周和导出范围 |
+| D-36 | `free = available - busy`，`focus+frag` 由空闲区间求和 | `free = focus+frag`，`busy = available-free`，所有区间按分钟向下取整 | 正确性评审复现 10:00:30 结束导致 419≠420 | 两个不变式恒成立；不足 1 分钟的边界会使 busy 进位 1 分钟 |
+| D-37 | 用本地 wall clock 相减算分钟 | 跨 DST 用 UTC 实际经过时间（`span_minutes`） | 正确性评审指出 DST 无测试；春季跳变周会多算 1 小时 | 工作窗口跨跳变时分钟数正确 |
+| D-38 | HTML 时间带与明细都用截断后的 `events` | 新增 `Report.events_full` 只供时间带/周末统计；明细仍截断 | 正确性评审指出超过 `MAX_REPORT_EVENTS` 时时间带缺块 | 页面时间带与指标一致；明细仍受上限保护 |
+| D-39 | 示例 RRULE 每周一，EXDATE/改期在周三 | 改为 `FREQ=DAILY;COUNT=5`，去掉错位 EXDATE，保留周三改期覆盖 | 正确性评审复现“每日站会（改期）”被丢弃；示例数字随之变化 | demo 数字更新为 16h45/42%、12h45/55%；截图重拍 |
+| D-40 | `--quiet` 只关 stdout；空周+已有计划先报 6 | `--quiet` 同时不打印 no-suggestion 提示；无建议时 audit 不 preflight plan | 正确性评审复现 quiet 仍写 stderr、空周计划文件存在返回 6 | 无建议 audit 退出 0 且安静；`plan` 仍在写前检查输出 |
+| D-41 | 输出权限一律 0600 | 仅 CLI 直接写文件为 0600；shell `>` 重定向由 shell/umask 决定（通常 0644） | 安全评审指出文档没区分 | README 已知限制写明；敏感场景用直接写文件 |
+| D-42 | SPEC 退出码 3 只写“输入缺失/不可读” | 3 也包含日历数量超过 20；SPEC 已补 | UX 评审发现 21 个文件退出 3 未登记 | 退出码与实现/文档一致 |
+| D-43 | 空白 UID 的反向事件无法归一化；RECURRENCE-ID 只按值匹配 | 反向事件按“摘要+交换后的首尾”匹配无 UID 组件；改期按 `(uid, recurrence-id)` 匹配 | 正确性评审复现无 UID 仍 60 分钟、无关 UID 同时间被误标 | 无 UID 反向事件为零时长；普通事件 `recurrence_id=null` |
 
 ## 未记录的“看起来像偏离”的事项
 

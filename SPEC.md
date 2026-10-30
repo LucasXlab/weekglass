@@ -97,8 +97,8 @@ weekglass/
 | 0 | 成功 |
 | 1 | 未预期的内部错误 |
 | 2 | 命令行参数错误（含 `--week`、`--now`、数值范围、互斥输出） |
-| 3 | 输入文件不存在、不是普通文件、不可读 |
-| 4 | 日历内容错误、文件过大、展开后事件过多、重复规则无法展开 |
+| 3 | 输入文件不存在、不是普通文件、不可读、日历数量超过 20 |
+| 4 | 日历内容错误、文件过大、重复规则预算超限、展开后事件过多、重复规则无法展开 |
 | 5 | `plan` 找不到任何专注块 |
 | 6 | 输出已存在且未加 `--force`，或演示目录非空 |
 | 7 | 创建目录或写入输出失败 |
@@ -364,9 +364,11 @@ JSON 输出时 stdout 只包含 JSON，不混入摘要；HTML/ICS 同理。
 | code | 触发条件 |
 |---|---|
 | `floating_time` | 事件 DTSTART/DTEND/RECURRENCE-ID 无时区 |
+| `unknown_tzid` | 事件带 TZID，但该时区无法识别；按配置时区解释 |
 | `missing_dtstart` | 展开后的事件缺少 DTSTART，跳过 |
 | `end_before_start` | 结束早于开始，按零时长处理 |
 | `report_truncated` | 事件数超过 `WEEKGLASS_MAX_REPORT_EVENTS`，报告只列前 N 条 |
+| `empty_week` | 本周没有事件，提醒检查 `--week` 与导出范围 |
 
 相同 `(code, message, source)` 只保留一条；最多 200 条。
 
@@ -443,9 +445,9 @@ JSON 输出时 stdout 只包含 JSON，不混入摘要；HTML/ICS 同理。
 Weekglass 0.1.0 · 2026-W44 · Asia/Shanghai
 10 月 26 日–10 月 30 日 · 5 个工作日
 
-占用        16 小时 15 分 / 40 小时（41%）
+占用        16 小时 45 分 / 40 小时（42%）
 完整专注    10 小时 30 分（5 块）
-碎片空闲    13 小时 15 分（占空闲 56%）
+碎片空闲    12 小时 45 分（占空闲 55%）
 最长空闲    3 小时
 
 周一   2 小时 15 分 占用 · 1 块专注 · 最长 3 小时
@@ -464,18 +466,18 @@ JSON：/path/report.json
 
 | 风险 | 防护 | 测试 |
 |---|---|---|
-| 覆盖用户已有报告/计划 | 默认拒绝已存在输出，`--force` 才覆盖；同路径重复检测；先检查后读取 | `test_cli.py::test_refuses_overwrite`、`test_duplicate_outputs` |
-| 写到一半留下损坏文件 | 同目录临时文件 + `os.replace` 原子替换；失败清理临时文件 | `test_outputs.py::test_atomic_replace` |
-| 修改/删除输入日历 | 代码只以 `read_bytes()` 读取输入，不打开写模式 | `test_cli.py::test_input_never_modified` |
-| 报告泄露隐私 | 不联网；HTML/终端只显示文件名；README 提醒分享前检查；JSON 含路径需自行检查 | `test_report.py::test_html_escapes_and_hides_absolute_path` |
-| 事件标题注入 HTML/脚本 | Jinja2 autoescape；CSP；无 JS | `test_report.py::test_xss_payload_is_escaped` |
-| 时区错误 | 所有时间显式带时区；无时区产生 warning；HTML/终端显示时区；ICS 用 UTC | `test_ics.py::test_floating_time_warning`、`test_dst_wall_clock` |
-| 重复事件无限展开 | 单文件 20 MB、展开事件 20,000、最多 20 个文件、只展开本周前后 2 天；坏 RRULE 跳过 | `test_ics.py::test_too_many_events`、`test_bad_rrule_is_skipped` |
-| 全天事件误算 | 默认不计入占用；`--all-day-busy` 才计入；文档/报告写明 | `test_metrics.py::test_all_day_default_and_flag` |
-| 输出路径写失败 | 捕获 `OSError`，退出 7，中文说明路径和系统错误 | `test_outputs.py::test_write_error` |
-| 误用为自动排程 | 不提供写日历 API；只生成独立 `.ics`；README 说明导入前确认 | `test_cli.py::test_plan_is_separate_file` |
-| 模型编造内容 | 不使用 LLM；所有数字由本地计算 | `test_no_network.py::test_socket_is_never_used` |
-| 进程中断后状态不一致 | 无持久状态；每次运行从输入重算；输出原子替换 | `test_cli.py::test_rerun_is_deterministic` |
+| 覆盖用户已有报告/计划 | 默认拒绝已存在输出，`--force` 才覆盖；同路径/硬链接/大小写重复检测；拒绝输出覆盖输入 | `test_cli.py::test_overwrite_requires_force`、`test_cli.py::test_output_cannot_overwrite_input`、`test_outputs.py::test_duplicate_outputs_via_hard_link_are_rejected` |
+| 写到一半留下损坏文件 | 同目录临时文件 + `os.replace` 原子替换；失败清理临时文件 | `test_outputs.py::test_write_text_replace_failure_leaves_no_temp_file`、`test_cli.py::test_concurrent_atomic_writes` |
+| 修改/删除输入日历 | 代码只以 `read_bytes()` 读取输入；输出与输入同路径时拒绝 | `test_cli.py::test_input_file_is_never_modified`、`test_plan_output_cannot_overwrite_input` |
+| 报告泄露隐私 | 不联网；HTML/终端只显示文件名；README 提醒分享前检查；JSON 含路径需自行检查 | `test_report.py::test_html_contains_numbers_and_no_absolute_path` |
+| 事件标题注入 HTML/脚本 | Jinja2 autoescape；CSP；无 JS | `test_report.py::test_html_escapes_xss`、`test_design.py::test_no_script_or_external_resources` |
+| 时区错误 | 所有时间显式带时区；无时区/未知 TZID 产生 warning；HTML/终端显示时区；ICS 用 UTC；跨 DST 用实际经过分钟 | `test_ics.py::test_floating_and_unknown_timezone`、`test_ics.py::test_dst_wall_clock_week_keeps_work_window_minutes` |
+| 重复事件无限展开 | 单文件 20 MB、展开事件 20,000、最多 20 个文件、只展开本周前后 2 天；SECONDLY/MINUTELY 预检；坏 RRULE 跳过 | `test_ics.py::test_file_size_and_event_limits`、`test_ics.py::test_secondly_recurrence_is_rejected_before_expansion`、`test_ics.py::test_rrule_bad_series_is_skipped` |
+| 全天事件误算 | 默认不计入占用；`--all-day-busy` 才计入；透明/取消不占；文档/报告写明 | `test_ics.py::test_all_day_busy_flag`、`test_metrics.py::test_after_hours_weekend_and_all_day` |
+| 输出路径写失败 | 捕获 `OSError`，退出 7，中文说明路径和系统错误 | `test_outputs.py::test_write_text_directory_failure` |
+| 误用为自动排程 | 不提供写日历 API；只生成独立 `.ics`；README 说明导入前确认 | `test_cli.py::test_plan_success_and_no_suggestions`、`test_planner.py::test_plan_is_deterministic` |
+| 模型编造内容 | 不使用 LLM；所有数字由本地计算 | `test_no_network.py::test_no_network_is_used` |
+| 进程中断后状态不一致 | 无持久状态；每次运行从输入重算；输出原子替换 | `test_cli.py::test_demo_deterministic`、`test_cli.py::test_concurrent_atomic_writes` |
 
 ## 9. 外部服务与 mock
 
@@ -499,12 +501,13 @@ JSON：/path/report.json
 - RRULE 的 `COUNT`、`UNTIL`、`BYDAY`、`EXDATE`、`RDATE`、`RECURRENCE-ID` 改期。
 - 同一 UID/时间/标题跨两个文件合并，`sources` 含两个文件名，`duplicate_events=1`。
 - 无效 ICS、文件不存在、目录、不可读、超过大小、超过事件数、坏 RRULE。
-- 无时区事件产生 `floating_time`；未知 TZID 不崩溃。
+- 无时区事件产生 `floating_time`；未知 TZID 产生 `unknown_tzid` 并说明按哪个时区解释。
 - 周窗口边界：周日 23:30 跨到周一、周五 23:00 跨到周六、跨时区事件。
+- DST 春季跳变周：工作窗口跨过跳变时，可用分钟按实际经过时间计算。
 
 ### 10.2 指标
 
-- 空周、全天空闲、全天占用、午休被会议占用、午休关闭、`buffer=0/10/60`。
+- 空周、全天空闲、全天占用、午休被会议占用、午休关闭、`buffer=0/10/60`；空周产生 `empty_week` 警告。
 - 相邻事件合并、重叠事件合并、首尾相接、间隔 1 分钟、间隔 5 分钟、间隔 6 分钟。
 - 完整专注 89/90/91 分钟；碎片段计数；最长专注；碎片率分母为 0。
 - 背靠背 0/5/6 分钟；重叠不算背靠背。
@@ -525,10 +528,10 @@ JSON：/path/report.json
 ### 10.4 CLI 与输出
 
 - `--help`、`version`、`version --json`、`--version`。
-- 人类摘要字段、无建议提示、`--quiet`、颜色在非 TTY 关闭。
+- 人类摘要字段、无建议提示、`--quiet`（stderr 也为空）、颜色在非 TTY 关闭。
 - JSON schema 顶层键、字段类型、排序、`plan_path`。
 - HTML 包含关键数字、无 `<script>` 注入、无外部 URL、无绝对路径。
-- 已存在输出退出 6；`--force` 覆盖；重复路径退出 2；两个 stdout 退出 2。
+- 已存在输出退出 6；`--force` 覆盖；重复路径退出 2；两个 stdout 退出 2；拒绝输出覆盖输入退出 2。
 - 输出父目录自动创建；写失败退出 7；stdout 输出不混入摘要。
 - 环境变量非法退出 8；CLI 非法退出 2；输入缺失退出 3；日历非法退出 4；无建议退出 5；内部错误退出 1。
 - `demo` 生成 5 个文件、重复运行无 `--force` 退出 6、`--now` 固定 `generated_at`。

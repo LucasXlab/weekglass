@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 
 from .config import Config, WEEKDAY_NAMES
-from .formatting import round1
+from .formatting import round1, span_minutes
 from .model import DayMetrics, Event, Metrics, Suggestion
 
 GRID_MINUTES = 15
@@ -112,14 +112,16 @@ def compute_day(day: date, events: list[Event], cfg: Config) -> DayMetrics:
     busy = _merge(clipped_busy)
     free = _merge(_merge_available(available, busy))
 
-    available_minutes = sum(_minutes(end - start) for start, end in available)
-    busy_minutes = sum(_minutes(end - start) for start, end in busy)
-    free_minutes = max(0, available_minutes - busy_minutes)
+    available_minutes = sum(span_minutes(start, end) for start, end in available)
 
-    focus_blocks = [interval for interval in free if _minutes(interval[1] - interval[0]) >= cfg.min_focus_minutes]
-    fragmented = [interval for interval in free if _minutes(interval[1] - interval[0]) < cfg.min_focus_minutes]
-    focus_minutes = sum(_minutes(end - start) for start, end in focus_blocks)
-    fragmented_minutes = sum(_minutes(end - start) for start, end in fragmented)
+    focus_blocks = [interval for interval in free if span_minutes(interval[0], interval[1]) >= cfg.min_focus_minutes]
+    fragmented = [interval for interval in free if span_minutes(interval[0], interval[1]) < cfg.min_focus_minutes]
+    focus_minutes = sum(span_minutes(start, end) for start, end in focus_blocks)
+    fragmented_minutes = sum(span_minutes(start, end) for start, end in fragmented)
+    # Sum the free intervals instead of subtracting floored busy minutes: a
+    # 30-second DTEND must not make focus+fragmented disagree with free.
+    free_minutes = focus_minutes + fragmented_minutes
+    busy_minutes = max(0, available_minutes - free_minutes)
 
     after_hours = 0
     work_start, work_end = cfg.day_window(day)
@@ -133,7 +135,7 @@ def compute_day(day: date, events: list[Event], cfg: Config) -> DayMetrics:
             if piece is not None:
                 outside_busy.append(piece)
     for start, end in _merge(outside_busy):
-        after_hours += _minutes(end - start)
+        after_hours += span_minutes(start, end)
 
     all_day = sum(1 for event in events if event.all_day and event.start.date() <= day <= (event.end - timedelta(seconds=1)).date())
     return DayMetrics(
@@ -146,7 +148,7 @@ def compute_day(day: date, events: list[Event], cfg: Config) -> DayMetrics:
         fragmented_minutes=fragmented_minutes,
         focus_blocks=len(focus_blocks),
         fragments=len(fragmented),
-        longest_focus_minutes=max((_minutes(end - start) for start, end in focus_blocks), default=0),
+        longest_focus_minutes=max((span_minutes(start, end) for start, end in focus_blocks), default=0),
         busy_blocks=len(busy),
         after_hours_minutes=after_hours,
         all_day_events=all_day,
@@ -180,7 +182,7 @@ def _weekend_minutes(events: list[Event], cfg: Config) -> int:
             if piece is not None:
                 timed.append(piece)
         for start, end in _merge(timed):
-            total += _minutes(end - start)
+            total += span_minutes(start, end)
     return total
 
 
@@ -245,7 +247,7 @@ def suggest_focus_blocks(days: list[DayMetrics], events: list[Event], cfg: Confi
         for start, end in free:
             aligned_start = _ceil_to_grid(start)
             aligned_end = _floor_to_grid(end)
-            raw_minutes = _minutes(aligned_end - aligned_start)
+            raw_minutes = span_minutes(aligned_start, aligned_end)
             if raw_minutes < cfg.min_focus_minutes:
                 continue
             block_minutes = min(raw_minutes, max(MAX_SUGGESTION_MINUTES, cfg.min_focus_minutes))

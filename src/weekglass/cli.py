@@ -37,7 +37,7 @@ ANSI = {"bold": "\033[1m", "dim": "\033[2m", "green": "\033[32m", "reset": "\033
 
 class Parser(argparse.ArgumentParser):
     def error(self, message: str):  # pragma: no cover - argparse calls it
-        raise UsageError(message, code="usage")
+        raise UsageError(f"参数错误：{message}", code="usage", hint="运行 weekglass --help 查看用法。")
 
 
 def _parse_clock_range(value: str, flag: str) -> tuple[time, time]:
@@ -172,6 +172,14 @@ def _settings(cfg: Config) -> dict:
 def analyze(paths: list[str], cfg: Config, plan_path: str | None = None) -> tuple[Report, list[Suggestion], str | None]:
     sources, events, warnings, duplicates, cancelled, transparent = load_events(paths, cfg)
     metrics, days = compute_metrics(events, cfg, duplicates=duplicates, cancelled=cancelled, transparent=transparent)
+    if metrics.event_count == 0 and len(warnings) < 200:
+        warnings.append(
+            Warning(
+                code="empty_week",
+                message="本周文件内没有事件；请确认 --week、导出范围，或是否只导出了周末。",
+                source="",
+            )
+        )
     suggestions = suggest_focus_blocks(days, events, cfg)
     plan_text = build_plan(suggestions, cfg) if plan_path and suggestions else None
     report_events = events
@@ -185,6 +193,7 @@ def analyze(paths: list[str], cfg: Config, plan_path: str | None = None) -> tupl
                     source="",
                 )
             )
+    full_events = events
     report = Report(
         schema_version=SCHEMA_VERSION,
         tool_name="weekglass",
@@ -199,6 +208,7 @@ def analyze(paths: list[str], cfg: Config, plan_path: str | None = None) -> tupl
         metrics=metrics,
         days=days,
         events=report_events,
+        events_full=full_events,
         suggestions=suggestions,
         warnings=warnings,
         plan_path=(plan_path if plan_text else None),
@@ -241,6 +251,13 @@ def _human_audit(report: Report, cfg: Config, json_path: str | None, html_path: 
             f"{day.weekday}  {duration(day.busy_minutes):>10} 占用 · "
             f"{day.focus_blocks} 块专注 · 最长 {duration(day.longest_focus_minutes)}"
         )
+    hidden = []
+    if not cfg.include_weekend:
+        analyzed = {day.date for day in report.days}
+        hidden = [event for event in (report.events_full or report.events) if event.start.date() not in analyzed]
+        if hidden:
+            print()
+            print(dim(f"提示：另有 {len(hidden)} 个周末事件（{duration(sum(e.minutes for e in hidden))}）未计入；加 --include-weekend 查看。"))
     print()
     if report.suggestions:
         print("建议：")
@@ -267,12 +284,24 @@ def _human_audit(report: Report, cfg: Config, json_path: str | None, html_path: 
             print(dim(f"另有 {len(report.warnings) - 5} 条提示，见报告。"))
 
 
-def _write_outputs(args: argparse.Namespace, report: Report, cfg: Config, suggestions: list[Suggestion], plan_text: str | None) -> None:
+def _write_outputs(
+    args: argparse.Namespace,
+    report: Report,
+    cfg: Config,
+    suggestions: list[Suggestion],
+    plan_text: str | None,
+    inputs: list[str] | None = None,
+) -> None:
     json_path = getattr(args, "json", None)
     html_path = getattr(args, "html", None)
     plan_path = getattr(args, "plan_out", None) or getattr(args, "out", None)
-    paths = [path for path in (json_path, html_path, plan_path) if path]
-    preflight(paths, args.force)
+    paths = [path for path in (json_path, html_path) if path]
+    if plan_path and plan_text:
+        paths.append(plan_path)
+    if paths:
+        if inputs:
+            reject_input_collisions(paths, inputs)
+        preflight(paths, args.force)
 
     plan_label = None
     html_plan_label = None
@@ -298,15 +327,15 @@ def _stdout_used(args: argparse.Namespace) -> bool:
 def run_audit(args: argparse.Namespace) -> int:
     cfg = _config(args)
     plan_path = args.plan_out
-    paths = [path for path in (args.json, args.html, plan_path) if path]
+    paths = [path for path in (args.json, args.html) if path]
     if paths:
         reject_input_collisions(paths, args.calendars)
         preflight(paths, args.force)
     report, suggestions, plan_text = analyze(args.calendars, cfg, plan_path)
-    _write_outputs(args, report, cfg, suggestions, plan_text)
+    _write_outputs(args, report, cfg, suggestions, plan_text, inputs=args.calendars)
     if not args.quiet and not _stdout_used(args):
         _human_audit(report, cfg, args.json, args.html, plan_path if plan_text else None)
-    elif args.plan_out and not suggestions:
+    elif args.plan_out and not suggestions and not args.quiet:
         print(f"提示：本周没有 ≥ {cfg.min_focus_minutes} 分钟的连续空闲，未生成专注计划。", file=sys.stderr)
     return 0
 

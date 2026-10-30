@@ -10,8 +10,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from . import __version__
 from .config import Config
-from .formatting import clock, compact_duration, date_label, date_range_label, duration, generated_label, percent
-from .metrics import _available_intervals, _clip, _event_intervals, _merge, _minutes, _merge_available
+from .formatting import clock, compact_duration, date_label, date_range_label, duration, generated_label, percent, span_minutes
+from .metrics import _available_intervals, _clip, _event_intervals, _merge, _merge_available
 from .model import Event, Report
 
 
@@ -22,7 +22,7 @@ def render_json(report: Report) -> str:
 def _timeline(day: date, events: list[Event], cfg: Config) -> list[dict]:
     """Segments positioned on the 09:00–18:00 track."""
     track_start, track_end = cfg.day_window(day)
-    total = _minutes(track_end - track_start)
+    total = span_minutes(track_start, track_end)
     available = _available_intervals(day, cfg)
     clipped_busy: list[tuple[datetime, datetime]] = []
     for interval in _event_intervals(events, day, cfg, include_buffer=True):
@@ -39,27 +39,27 @@ def _timeline(day: date, events: list[Event], cfg: Config) -> list[dict]:
         segments.append(
             {
                 "kind": "lunch",
-                "left": round(_minutes(lunch[0] - track_start) * 100 / total, 3),
-                "width": round(_minutes(lunch[1] - lunch[0]) * 100 / total, 3),
+                "left": round(span_minutes(track_start, lunch[0]) * 100 / total, 3),
+                "width": round(span_minutes(lunch[0], lunch[1]) * 100 / total, 3),
                 "label": "午休",
             }
         )
     for start, end in free:
-        minutes = _minutes(end - start)
+        minutes = span_minutes(start, end)
         segments.append(
             {
                 "kind": "focus" if minutes >= cfg.min_focus_minutes else "fragment",
-                "left": round(_minutes(start - track_start) * 100 / total, 3),
+                "left": round(span_minutes(track_start, start) * 100 / total, 3),
                 "width": round(minutes * 100 / total, 3),
                 "label": compact_duration(minutes) if minutes >= 30 else "",
             }
         )
     for start, end in busy:
-        minutes = _minutes(end - start)
+        minutes = span_minutes(start, end)
         segments.append(
             {
                 "kind": "busy",
-                "left": round(_minutes(start - track_start) * 100 / total, 3),
+                "left": round(span_minutes(track_start, start) * 100 / total, 3),
                 "width": round(minutes * 100 / total, 3),
                 "label": compact_duration(minutes) if minutes >= 30 else "",
             }
@@ -73,7 +73,9 @@ def _events_for_day(day: date, events: list[Event]) -> list[dict]:
         if event.status == "CANCELLED":
             continue
         ends = event.end - timedelta(seconds=1)
-        if event.start.date() <= day <= ends.date():
+        first_day = event.start.date()
+        last_day = max(first_day, ends.date())
+        if first_day <= day <= last_day:
             result.append(
                 {
                     "time": "全天" if event.all_day else f"{clock(event.start)}–{clock(event.end)}",
@@ -88,6 +90,7 @@ def _events_for_day(day: date, events: list[Event]) -> list[dict]:
 
 
 def build_view(report: Report, cfg: Config, plan_file: str | None) -> dict:
+    timeline_events = report.events_full or report.events
     days = []
     examined = report.week_start
     last_day = report.days[-1].date if report.days else report.week_start
@@ -104,7 +107,7 @@ def build_view(report: Report, cfg: Config, plan_file: str | None) -> dict:
                 "busy_pct": percent(day_metrics.busy_pct),
                 "focus_blocks": day_metrics.focus_blocks,
                 "fragments": day_metrics.fragments,
-                "segments": _timeline(day_metrics.date, report.events, cfg),
+                "segments": _timeline(day_metrics.date, timeline_events, cfg),
                 "events": _events_for_day(day_metrics.date, report.events),
             }
         )
@@ -129,6 +132,9 @@ def build_view(report: Report, cfg: Config, plan_file: str | None) -> dict:
             }
         )
     warnings = [{"code": w.code, "message": w.message, "source": w.source} for w in report.warnings]
+    analyzed_dates = {day_metrics.date for day_metrics in report.days}
+    hidden = [event for event in timeline_events if event.start.date() not in analyzed_dates]
+    details_count = sum(len(day["events"]) for day in days)
     suggestions = []
     for suggestion in report.suggestions:
         suggestions.append(
@@ -149,6 +155,9 @@ def build_view(report: Report, cfg: Config, plan_file: str | None) -> dict:
         "timezone": report.timezone,
         "generated": generated_label(report.generated_at),
         "days_count": len(report.days),
+        "details_count": details_count,
+        "hidden_events": len(hidden),
+        "hidden_minutes": sum(event.minutes for event in hidden),
         "days_label": f"{len(report.days)} 天（含周末）" if cfg.include_weekend else f"{len(report.days)} 个工作日",
         "max_per_day": cfg.max_per_day,
         "metrics": {

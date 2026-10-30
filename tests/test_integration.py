@@ -18,11 +18,13 @@ def test_empty_calendar_produces_empty_week(tmp_path, capsys):
     assert len(report.days) == 5
     assert len(suggestions) == 3
     assert report.sources[0].events_total == 0
+    assert any(w.code == "empty_week" for w in report.warnings)
 
     code = main(["audit", str(path), "--week", "2026-10-26", "--json", "-", "--quiet"])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["metrics"]["event_count"] == 0
+    assert any(w["code"] == "empty_week" for w in payload["warnings"])
 
 
 def test_multi_day_all_day_event_only_occupies_its_days(tmp_path):

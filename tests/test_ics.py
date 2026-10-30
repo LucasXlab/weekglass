@@ -70,7 +70,8 @@ def test_floating_and_unknown_timezone(tmp_path):
     ).replace("Asia/Shanghai", "Mars/Olympus")
     _s, events, warnings, _d, _c, _t = load(tmp_path, unknown, name="unknown.ics")
     assert events[0].start.isoformat() == "2026-10-26T10:00:00+08:00"
-    assert any(w.code == "floating_time" for w in warnings)
+    assert any(w.code == "unknown_tzid" for w in warnings)
+    assert any("Mars/Olympus" in w.message for w in warnings)
 
 
 def test_duration_and_utc(tmp_path):
@@ -261,3 +262,131 @@ END:VEVENT"""
     with pytest.raises(CalendarError) as exc:
         load_events([str(path)], cfg)
     assert exc.value.code == "recurrence_limit"
+
+
+def test_unknown_tzid_is_named_in_warning(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:unknown-zone
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Mars/Phobos:20261026T100000
+DTEND;TZID=Mars/Phobos:20261026T110000
+SUMMARY:未知时区
+END:VEVENT"""
+    )
+    _s, events, warnings, _d, _c, _t = load(tmp_path, body)
+    assert len(events) == 1
+    match = [w for w in warnings if w.code == "unknown_tzid"]
+    assert match
+    assert "Mars/Phobos" in match[0].message
+    assert "Asia/Shanghai" in match[0].message
+    assert "没有时区" not in match[0].message
+
+
+def test_recurrence_id_is_scoped_to_its_own_uid(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:series
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T091500
+RRULE:FREQ=WEEKLY;COUNT=2
+SUMMARY:系列站会
+END:VEVENT
+BEGIN:VEVENT
+UID:series
+DTSTAMP:20261001T000000Z
+RECURRENCE-ID;TZID=Asia/Shanghai:20261028T090000
+DTSTART;TZID=Asia/Shanghai:20261028T100000
+DTEND;TZID=Asia/Shanghai:20261028T101500
+SUMMARY:系列站会（改期）
+END:VEVENT
+BEGIN:VEVENT
+UID:other
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261028T090000
+DTEND;TZID=Asia/Shanghai:20261028T100000
+SUMMARY:同时间别的会
+END:VEVENT"""
+    )
+    _s, events, _w, _d, _c, _t = load(tmp_path, body)
+    other = [event for event in events if event.uid == "other"]
+    assert len(other) == 1
+    assert other[0].recurrence_id is None
+    override = [event for event in events if event.summary == "系列站会（改期）"]
+    assert len(override) == 1
+    assert override[0].recurrence_id == "2026-10-28T09:00:00+08:00"
+
+
+def test_count_limited_secondly_recurrence_is_allowed(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:twice
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T091500
+RRULE:FREQ=SECONDLY;COUNT=2
+SUMMARY:两次
+END:VEVENT"""
+    )
+    path = write_ics(tmp_path, "twice.ics", body)
+    _s, events, _w, _d, _c, _t = load_events([str(path)], make_config(env={"WEEKGLASS_MAX_EVENTS": "100"}))
+    assert len(events) == 2
+
+
+def test_sub_minute_end_keeps_free_busy_invariant(tmp_path):
+    from weekglass.metrics import compute_metrics
+
+    body = calendar(
+        """BEGIN:VEVENT
+UID:seconds
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T100030
+SUMMARY:带秒结束
+END:VEVENT"""
+    )
+    _s, events, _w, _d, _c, _t = load(tmp_path, body)
+    metrics, days = compute_metrics(events, make_config(), duplicates=0, cancelled=0, transparent=0)
+    assert days[0].free_minutes == 419
+    assert days[0].focus_minutes + days[0].fragmented_minutes == days[0].free_minutes
+    assert days[0].busy_minutes + days[0].free_minutes == days[0].available_minutes
+    assert metrics.busy_minutes == 61
+
+
+def test_no_uid_end_before_start_becomes_zero_length(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T110000
+DTEND;TZID=Asia/Shanghai:20261026T100000
+SUMMARY:无 UID 反向
+END:VEVENT"""
+    )
+    _s, events, warnings, _d, _c, _t = load(tmp_path, body)
+    assert len(events) == 1
+    assert events[0].start.isoformat() == "2026-10-26T11:00:00+08:00"
+    assert events[0].end == events[0].start
+    assert events[0].minutes == 0
+    assert any(w.code == "end_before_start" for w in warnings)
+
+
+def test_dst_wall_clock_week_keeps_work_window_minutes(tmp_path):
+    from weekglass.metrics import compute_metrics
+
+    cfg = load_config(
+        {
+            "WEEKGLASS_TZ": "America/New_York",
+            "WEEKGLASS_WEEK": "2026-03-02",
+            "WEEKGLASS_NOW": "2026-03-05T12:00:00-05:00",
+            "WEEKGLASS_INCLUDE_WEEKEND": "1",
+            "WEEKGLASS_WORK_START": "01:00",
+            "WEEKGLASS_WORK_END": "04:00",
+            "WEEKGLASS_LUNCH_START": "off",
+            "WEEKGLASS_LUNCH_END": "off",
+        }
+    )
+    metrics, days = compute_metrics([], cfg, duplicates=0, cancelled=0, transparent=0)
+    assert len(days) == 7
+    assert days[6].available_minutes == 120
+    assert metrics.available_minutes == 6 * 180 + 120

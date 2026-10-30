@@ -45,9 +45,9 @@ Weekglass 把这件事变成三个可核对的问题：
 终端直接给结论：
 
 ```
-占用        16 小时 15 分 / 40 小时（41%）
+占用        16 小时 45 分 / 40 小时（42%）
 完整专注    10 小时 30 分（5 块）
-碎片空闲    13 小时 15 分（占空闲 56%）
+碎片空闲    12 小时 45 分（占空闲 55%）
 最长空闲    3 小时
 ```
 
@@ -156,7 +156,7 @@ weekglass audit work.ics personal.ics \
 |---|---|---|
 | `WEEKGLASS_TZ` | 系统时区 | IANA 时区，例如 `Asia/Shanghai` |
 | `WEEKGLASS_WORK_START` / `WEEKGLASS_WORK_END` | `09:00` / `18:00` | 工作窗口 |
-| `WEEKGLASS_LUNCH_START` / `WEEKGLASS_LUNCH_END` | `12:00` / `13:00` | 午休；都写 `off` 表示不计午休 |
+| `WEEKGLASS_LUNCH_START` / `WEEKGLASS_LUNCH_END` | `12:00` / `13:00` | 午休；必须落在工作窗口内；都写 `off` 表示不计午休 |
 | `WEEKGLASS_MIN_FOCUS_MINUTES` | `90` | 完整专注的最短分钟数 |
 | `WEEKGLASS_NOW` | 当前时间 | 带偏移的 ISO 时间；用于复现，不用于日常 |
 
@@ -208,11 +208,11 @@ pytest -q
 
 ## 已知限制
 
-- 未知 `TZID` 在导出文件中可能退化为浮动时间；Weekglass 按配置时区解释并提示。
+- 未知 `TZID` 会按配置时区解释，并在终端/报告里指出具体 TZID；不认识的时区仍可能造成偏移。
 - 夏令时回拨的重复 wall clock 没有唯一标记，同一 wall clock 的两个事件可能被合并。
 - 生成 `.ics` 使用 UTC，不写 VTIMEZONE；主流客户端可导入，极旧客户端可能不识别显示时区。
 - 报告只显示来源文件名，不显示绝对路径；JSON 保留传入路径，分享 JSON 前请检查。
-- 输出文件在 POSIX 上为 0600；Windows 不保证同等权限。
+- 直接用 `--html`/`--json` 写文件时，POSIX 权限为 0600；用 shell `>` 重定向时权限由 shell/umask 决定（常见 0644）。Windows 不保证同等权限。
 
 ## 许可证
 

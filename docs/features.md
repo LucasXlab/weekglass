@@ -11,7 +11,7 @@ weekglass audit work.ics personal.ics --week 2026-10-26 --html report.html
 - 一次 1–20 个文件，单文件默认 20 MB，展开后默认 20,000 个事件。
 - 自动展开 RRULE、RDATE、EXDATE、RECURRENCE-ID；取消事件不进入报告，透明事件不占用，暂定事件按占用。
 - 同一 UID、同一时间、同一标题的事件跨日历合并，`sources` 保留所有来源。
-- 所有时间统一到 `WEEKGLASS_TZ`；无时区事件产生提示。
+- 所有时间统一到 `WEEKGLASS_TZ`；无时区事件产生 `floating_time`，带未知 TZID 的产生 `unknown_tzid` 并写明实际解释时区。
 - 契约：[SPEC §5.3、§6.2](../SPEC.md#53-sources)、[SPEC §6.2](../SPEC.md#62-展开时区与去重)。
 
 ## 2. 一周时间预算
@@ -24,13 +24,14 @@ weekglass audit work.ics personal.ics --week 2026-10-26 --html report.html
 - 碎片 = 短于阈值的空闲；
 - 碎片率 = 碎片 / 空闲；
 - 最长空闲、背靠背事件、工时外、周末、重复/取消/透明计数。
+- 空周会加 `empty_week` 提示；默认不分析周末；周末事件在终端/报告里单独说明，不被静默算进可用时间。
 
 终端示例（示例数据）：
 
 ```
-占用        16 小时 15 分 / 40 小时（41%）
+占用        16 小时 45 分 / 40 小时（42%）
 完整专注    10 小时 30 分（5 块）
-碎片空闲    13 小时 15 分（占空闲 56%）
+碎片空闲    12 小时 45 分（占空闲 55%）
 最长空闲    3 小时
 ```
 
@@ -43,6 +44,7 @@ weekglass audit work.ics personal.ics --week 2026-10-26 --html report.html
 - 评分偏向更长、上午、周二至周四；
 - 默认每天最多 1 个、总共 3 个；
 - 不覆盖已有占用，不跨午休。
+- 输出不会覆盖输入 `.ics`；默认拒绝已存在的输出，`--force` 才覆盖（`demo` 只覆盖示例文件）。
 
 ```bash
 weekglass plan work.ics personal.ics --week 2026-10-26 --out focus.ics

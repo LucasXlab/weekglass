@@ -45,9 +45,9 @@ Per day: available time, busy time, full focus, fragments, longest free block, b
 The CLI prints Chinese labels; the shape is:
 
 ```
-占用        16 小时 15 分 / 40 小时（41%）
+占用        16 小时 45 分 / 40 小时（42%）
 完整专注    10 小时 30 分（5 块）
-碎片空闲    13 小时 15 分（占空闲 56%）
+碎片空闲    12 小时 45 分（占空闲 55%）
 最长空闲    3 小时
 ```
 
@@ -156,7 +156,7 @@ Everything is optional. The most useful variables are below; the full list, defa
 |---|---|---|
 | `WEEKGLASS_TZ` | system zone | IANA zone, e.g. `Asia/Shanghai` |
 | `WEEKGLASS_WORK_START` / `WEEKGLASS_WORK_END` | `09:00` / `18:00` | Work window |
-| `WEEKGLASS_LUNCH_START` / `WEEKGLASS_LUNCH_END` | `12:00` / `13:00` | Lunch; set both to `off` to disable |
+| `WEEKGLASS_LUNCH_START` / `WEEKGLASS_LUNCH_END` | `12:00` / `13:00` | Lunch must fall inside the work window; set both to `off` to disable |
 | `WEEKGLASS_MIN_FOCUS_MINUTES` | `90` | Minimum full-focus block |
 | `WEEKGLASS_NOW` | current time | Offset-aware ISO time; for reproduction, not daily use |
 
@@ -208,11 +208,11 @@ Tests run offline, in temporary directories, with a frozen clock. They do not re
 
 ## Known limitations
 
-- An unknown `TZID` may arrive as a floating time; Weekglass interprets it in the configured zone and warns.
+- An unknown `TZID` is interpreted in the configured zone and named in the warning; a genuinely unknown zone can still shift times.
 - Two events with the same wall-clock time during a DST fall-back cannot be distinguished; they may be merged.
 - Generated `.ics` uses UTC and no VTIMEZONE. Mainstream clients import it; very old clients may not display the local zone.
 - The HTML report shows source file names, not absolute paths; the JSON keeps the passed path, so check it before sharing.
-- On POSIX, output files are created with mode 0600; Windows permissions are not guaranteed to match.
+- Files written directly with `--html`/`--json` use mode 0600 on POSIX; shell `>` redirection follows shell/umask (commonly 0644). Windows permissions are not guaranteed to match.
 
 ## License
 
