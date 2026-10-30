@@ -465,3 +465,16 @@ def test_audit_quiet_empty_week_with_existing_plan_is_silent(tmp_path, capsys):
     assert code == 0
     assert err == ""
     assert plan.read_text() == "KEEP"
+
+
+def test_internal_error_returns_one(monkeypatch, capsys):
+    import weekglass.cli as cli
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated bug")
+
+    monkeypatch.setattr(cli, "analyze", boom)
+    code, _out, err = run(capsys, "audit", "missing.ics", "--week", "2026-10-26")
+    assert code == 1
+    assert "错误[internal]" in err
+    assert "simulated bug" in err

@@ -390,3 +390,30 @@ def test_dst_wall_clock_week_keeps_work_window_minutes(tmp_path):
     assert len(days) == 7
     assert days[6].available_minutes == 120
     assert metrics.available_minutes == 6 * 180 + 120
+
+
+def test_rrule_until_byday_and_rdate(tmp_path):
+    body = calendar(
+        """BEGIN:VEVENT
+UID:until-byday
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261026T090000
+DTEND;TZID=Asia/Shanghai:20261026T093000
+RRULE:FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261104T000000Z
+SUMMARY:周一三五
+END:VEVENT
+BEGIN:VEVENT
+UID:rdate
+DTSTAMP:20261001T000000Z
+DTSTART;TZID=Asia/Shanghai:20261030T140000
+DTEND;TZID=Asia/Shanghai:20261030T143000
+RDATE;TZID=Asia/Shanghai:20261030T160000
+SUMMARY:额外时段
+END:VEVENT"""
+    )
+    _s, events, _w, _d, _c, _t = load(tmp_path, body)
+    by_uid = {}
+    for event in events:
+        by_uid.setdefault(event.uid, []).append(event.start.strftime("%Y-%m-%d %H:%M"))
+    assert by_uid["until-byday"] == ["2026-10-26 09:00", "2026-10-28 09:00"]
+    assert by_uid["rdate"] == ["2026-10-30 14:00", "2026-10-30 16:00"]

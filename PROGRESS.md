@@ -9,7 +9,7 @@
 | 0 初始化 | 完成 | 独立仓库、`reference/inkdove`、`.gitignore`、`notes/参照.md` |
 | 1 选题 | 完成 | `docs/选题.md`（8 候选、证据、竞品、评分、适用/不适用） |
 | 2 规格/设计 | 完成，已过独立评审 | `SPEC.md`、`DESIGN.md`、`docs/external-apis.md` |
-| 3 实现 | 完成 | `src/weekglass/*`、模板、137 个测试、示例 |
+| 3 实现 | 完成 | `src/weekglass/*`、模板、139 个测试、示例 |
 | 4 真实安装/复查 | 完成 | 10 次运行 + 5 类异常 + 3 个独立评审；见 `notes/真实运行.md`、`notes/评审记录.md` |
 | 5 文档/发布材料 | 完成，待最终标签 | README/README_EN、features/development、LICENSE/CHANGELOG/CI/assets/launch 已就绪 |
 
@@ -28,8 +28,8 @@ weekglass audit /tmp/wgdemo/work.ics /tmp/wgdemo/personal.ics \
 
 ## 最近验证
 
-- `pytest -q`：137 passed（2026-10-29，Python 3.13.5，Asia/Shanghai fixture；本轮末尾连续 3 次复跑）。
-- 干净 clone `/tmp/weekglass-final`：按 README 安装、demo 0.101s、5 个 0600 文件、`.[dev]` 后 137 passed；见 `notes/安装实录.md`。
+- `pytest -q`：139 passed（2026-10-29，Python 3.13.5，Asia/Shanghai fixture；本轮末尾连续 3 次复跑）。
+- 干净 clone `/tmp/weekglass-final`：按 README 安装、demo 0.101s、5 个 0600 文件、`.[dev]` 后 139 passed；见 `notes/安装实录.md`。
 - `weekglass demo`：生成 5 个文件；占用 16h45/40h（42%）、完整专注 10h30（5 块）、碎片 12h45（55%）。报告 1280/375/320px 无水平滚动；`h1` 52/32/32px；无 JS/外链/图片。
 - wheel：`weekglass-0.1.0-py3-none-any.whl` 包含 `weekglass/templates/report.html.j2`。
 
@@ -43,6 +43,6 @@ weekglass audit /tmp/wgdemo/work.ics /tmp/wgdemo/personal.ics \
 ## 最终状态
 
 - 版本：`0.1.0`；本地标签 `v0.1.0`；无远程、未 push、未发布。
-- 测试：137 passed，连续 3 次；干净 clone 的 `.[dev]` 测试 137 passed。
+- 测试：139 passed，连续 3 次；干净 clone 的 `.[dev]` 测试 139 passed。
 - 构建：`weekglass-0.1.0-py3-none-any.whl`（43,528 字节）包含模板与 LICENSE。
 - 复查：正确性/安全/新用户体验三份独立评审的严重问题均已修并留回归测试；残余已知限制见 README 和 `notes/评审记录.md`。

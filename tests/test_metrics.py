@@ -54,6 +54,12 @@ def test_90_minutes_is_focus_and_89_is_fragment():
     assert days[0].focus_blocks == 1
     assert days[0].fragments == 0
 
+    busy_91 = [make_event(at(26, 10, 31), at(26, 12)), make_event(at(26, 13), at(26, 18))]
+    m, days = metrics(busy_91)
+    assert days[0].free_minutes == 91
+    assert days[0].focus_minutes == 91
+    assert days[0].focus_blocks == 1
+
     busy_89 = [make_event(at(26, 10, 29), at(26, 12)), make_event(at(26, 13), at(26, 18))]
     m, days = metrics(busy_89)
     assert days[0].free_minutes == 89
@@ -89,6 +95,7 @@ def test_overlap_merge_and_busy_blocks():
     assert days[0].busy_blocks == 1
     assert days[0].free_minutes == 300
     assert days[0].focus_minutes == 300
+    assert m.back_to_back_pairs == 0
 
 
 def test_buffer_expands_timed_events():
