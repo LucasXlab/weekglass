@@ -276,8 +276,8 @@ JSON 输出时 stdout 只包含 JSON，不混入摘要；HTML/ICS 同理。
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `available_minutes` | integer | 所有分析日的可用分钟数之和 |
-| `busy_minutes` | integer | 合并后的占用分钟数 |
-| `free_minutes` | integer | `available_minutes - busy_minutes` |
+| `busy_minutes` | integer | `available_minutes - free_minutes`（整数不变式，见 6.3） |
+| `free_minutes` | integer | `focus_minutes + fragmented_minutes`，由空闲区间逐段向下取整求和 |
 | `focus_minutes` | integer | 完整空闲块分钟数之和 |
 | `fragmented_minutes` | integer | 短于 `min_focus_minutes` 的空闲分钟数之和 |
 | `focus_blocks` | integer | 完整空闲块数 |
@@ -302,7 +302,7 @@ JSON 输出时 stdout 只包含 JSON，不混入摘要；HTML/ICS 同理。
 {"date":"2026-10-26","weekday":"周一","available_minutes":480,"busy_minutes":135,"free_minutes":345,"focus_minutes":180,"fragmented_minutes":165,"focus_blocks":1,"fragments":4,"longest_focus_minutes":180,"busy_blocks":3,"after_hours_minutes":60,"all_day_events":0,"busy_pct":28.1}
 ```
 
-`weekday` 只取 `周一`…`周日`。`date` 为 `YYYY-MM-DD`。数值字段均为整数，`busy_pct` 为 1 位小数。每天 `focus_minutes + fragmented_minutes = free_minutes`。
+`weekday` 只取 `周一`…`周日`。`date` 为 `YYYY-MM-DD`。数值字段均为整数，`busy_pct` 为 1 位小数。每天 `focus_minutes + fragmented_minutes = free_minutes`，且 `busy_minutes + free_minutes = available_minutes`。
 
 ### 5.6 `events[]`
 
@@ -397,8 +397,9 @@ JSON 输出时 stdout 只包含 JSON，不混入摘要；HTML/ICS 同理。
 - 占用区间：所有 `busy=true` 事件与当天可用区间的交集；`buffer_minutes > 0` 时，定时事件先向前后各扩 N 分钟，再与可用区间求交。全天事件不加 buffer。
 - 合并规则：两个区间重叠或首尾相接（间隔 ≤ 0 分钟）合并。
 - `available_minutes`：可用区间分钟数之和。
-- `busy_minutes`：合并后占用区间与可用区间交集的分钟数之和。
-- `free_minutes = available_minutes - busy_minutes`（不小于 0）。
+- 空闲区间逐段按整分钟向下取整，`focus_minutes`/`fragmented_minutes` 分别求和；
+- `free_minutes = focus_minutes + fragmented_minutes`；
+- `busy_minutes = available_minutes - free_minutes`（不小于 0）。不足 1 分钟的事件/空闲边界会让 busy 以整数进位 1 分钟；`focus_minutes + fragmented_minutes = free_minutes` 与 `busy_minutes + free_minutes = available_minutes` 恒成立（D-36）。
 - 空闲区间：可用区间减去占用区间。长度 `≥ min_focus_minutes` 为完整专注块；长度 `> 0` 且 `< min_focus_minutes` 为碎片。长度 0 不计。
 - `longest_focus_minutes`：完整专注块的最大长度；没有为 0。
 - `busy_blocks`：合并后占用区间数。
